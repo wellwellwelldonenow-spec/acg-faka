@@ -31,9 +31,9 @@ class App extends Manage
     public function latest(): array
     {
         $versions = $this->app->getVersions();
-        $latestVersion = $versions[0]['version'];
-        $local = config("app")['version'];
-        $latest = $latestVersion == $local;
+        $latestVersion = (string)$versions[0]['version'];
+        $local = (string)config("app")['version'];
+        $latest = version_compare($local, $latestVersion, '>=');
         return $this->json(200, 'ok', ["local" => $local, "latest" => $latest, "version" => $latestVersion]);
     }
 

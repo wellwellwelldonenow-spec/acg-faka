@@ -18,6 +18,7 @@ use App\Model\UserCommodity;
 use App\Service\Query;
 use App\Service\Shared;
 use App\Service\Shop;
+use App\Service\Webshare;
 use App\Util\Client;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\Relation;
@@ -41,6 +42,9 @@ class Index extends User
 
     #[Inject]
     private Shop $shop;
+
+    #[Inject]
+    private Webshare $webshare;
 
 
     /**
@@ -310,17 +314,29 @@ class Index extends User
     public
     function valuation(): array
     {
+        $itemId = (int)$this->request->post("item_id");
+        $num = (int)$this->request->post("num");
+
         $price = $this->order->valuation(
-            commodity: (int)$this->request->post("item_id"),
-            num: (int)$this->request->post("num"),
+            commodity: $itemId,
+            num: $num,
             race: (string)$this->request->post("race"),
             sku: (array)$this->request->post("sku"),
             cardId: (int)$this->request->post("card_id"),
             coupon: (string)$this->request->post("coupon"),
             group: $this->getUserGroup()
         );
-        $price = $this->shop->getSubstationPrice((int)$this->request->post("item_id"), $price);
-        return $this->json(data: ["price" => $price]);
+        $price = $this->shop->getSubstationPrice($itemId, $price);
+
+        $data = ["price" => $price];
+        $commodity = Commodity::query()->find($itemId);
+        if ($commodity && $this->webshare->isSupportedCommodity($commodity)) {
+            $data['factory_price'] = (float)$commodity->factory_price;
+            $data['upstream_price'] = (float)$commodity->factory_price;
+            $data['upstream_currency'] = 'CNY';
+        }
+
+        return $this->json(data: $data);
     }
 
 

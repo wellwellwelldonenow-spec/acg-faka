@@ -54,6 +54,24 @@
                     <input type="number" class="form-control" name="phone" placeholder="手机号" required>
                     <label for="phone">手机号</label>
                 </div>
+                #{if isset($sms.numberAuthEnabled) && $sms.numberAuthEnabled == 1}
+                    <div class="row mb-4">
+                        <div class="col-sm-8 col-8">
+                            <div class="form-floating">
+                                <input type="text" class="form-control" id="number_auth_token"
+                                       name="number_auth_token" placeholder="号码认证 AccessToken"
+                                       #{if isset($sms.numberAuthRequired) && $sms.numberAuthRequired == 1}required#{/if}>
+                                <label class="form-label" for="number_auth_token">号码认证AccessToken#{if isset($sms.numberAuthRequired) && $sms.numberAuthRequired == 1}(必填)#{/if}</label>
+                            </div>
+                        </div>
+                        <div class="col-sm-4 col-4">
+                            <button type="button" class="w-100 btn btn-outline-primary py-3 verify-number-auth">
+                                校验号码
+                            </button>
+                        </div>
+                    </div>
+                    <div class="small text-muted mb-4">号码认证AccessToken需由客户端SDK获取（阿里云 GetMobile）。</div>
+                #{/if}
                 #{if $config.registered_phone_verification == 1}
                     <div class="row mb-4">
                         <div class="col-sm-8 col-8">

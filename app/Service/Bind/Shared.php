@@ -90,6 +90,393 @@ class Shared implements \App\Service\Shared
 
     /**
      * @param string $domain
+     * @return string
+     */
+    private function webshareDomain(string $domain): string
+    {
+        $domain = trim($domain, "/");
+        if (!str_starts_with($domain, "http://") && !str_starts_with($domain, "https://")) {
+            $domain = "https://" . $domain;
+        }
+        return $domain;
+    }
+
+    /**
+     * @param string $domain
+     * @param string $appKey
+     * @param string $path
+     * @param string $method
+     * @param array $query
+     * @param array $json
+     * @return array
+     * @throws JSONException
+     */
+    private function webshareRequest(string $domain, string $appKey, string $path, string $method = "GET", array $query = [], array $json = []): array
+    {
+        $url = $this->webshareDomain($domain) . $path;
+        $options = [
+            "headers" => [
+                "Authorization" => "Token " . $appKey,
+                "Accept" => "application/json"
+            ],
+            "timeout" => 30
+        ];
+
+        if (!empty($query)) {
+            $options["query"] = $query;
+        }
+
+        if ($method !== "GET") {
+            $options["headers"]["Content-Type"] = "application/json";
+            $options["json"] = $json;
+        }
+
+        try {
+            $response = Http::make()->request($method, $url, $options);
+            $contents = json_decode($response->getBody()->getContents() ?: "", true);
+            if (!is_array($contents)) {
+                throw new JSONException("Webshare响应异常");
+            }
+            return $contents;
+        } catch (\Throwable $e) {
+            $message = "Webshare请求失败";
+            if (method_exists($e, "getResponse") && $e->getResponse()) {
+                $body = (string)$e->getResponse()->getBody();
+                $decoded = json_decode($body, true);
+                if (is_array($decoded)) {
+                    if (isset($decoded["detail"]) && is_string($decoded["detail"])) {
+                        $message = $decoded["detail"];
+                    } elseif (isset($decoded["non_field_errors"][0]["message"])) {
+                        $message = (string)$decoded["non_field_errors"][0]["message"];
+                    } else {
+                        foreach ($decoded as $errors) {
+                            if (is_array($errors) && isset($errors[0]["message"])) {
+                                $message = (string)$errors[0]["message"];
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            throw new JSONException($message);
+        }
+    }
+
+    /**
+     * @param array $customize
+     * @return array
+     */
+    private function webshareCountries(array $customize): array
+    {
+        $available = (array)($customize["available_countries"] ?? []);
+        $countries = [];
+
+        foreach ($available as $key => $value) {
+            if (is_string($key) && $key !== "") {
+                $countries[strtoupper(trim($key))] = strtoupper(trim($key));
+                continue;
+            }
+
+            if (is_string($value) && $value !== "") {
+                $countries[strtoupper(trim($value))] = strtoupper(trim($value));
+                continue;
+            }
+
+            if (is_array($value)) {
+                $code = strtoupper(trim((string)($value["code"] ?? $value["country"] ?? "")));
+                if ($code !== "") {
+                    $countries[$code] = $code;
+                }
+            }
+        }
+
+        if (empty($countries)) {
+            $countries["US"] = "US";
+        }
+
+        return $countries;
+    }
+
+    /**
+     * @param array $countries
+     * @param string|null $preferred
+     * @return string
+     */
+    private function webshareSelectCountry(array $countries, ?string $preferred = null): string
+    {
+        $preferred = strtoupper(trim((string)$preferred));
+        if ($preferred !== "" && isset($countries[$preferred])) {
+            return $preferred;
+        }
+
+        foreach (["CN", "US", "HK", "JP", "SG"] as $hot) {
+            if (isset($countries[$hot])) {
+                return $hot;
+            }
+        }
+
+        return (string)(array_key_first($countries) ?: "US");
+    }
+
+    /**
+     * @param int $min
+     * @param int $max
+     * @return array
+     */
+    private function webshareTierQuantities(int $min, int $max): array
+    {
+        $min = max(1, $min);
+        $max = max($min, $max);
+        $tiers = [$min];
+        foreach ([2, 5, 10, 20] as $tier) {
+            if ($tier >= $min && $tier <= $max) {
+                $tiers[] = $tier;
+            }
+        }
+        $tiers = array_values(array_unique(array_filter($tiers, static function ($n) use ($min, $max) {
+            return $n >= $min && $n <= $max;
+        })));
+        sort($tiers, SORT_NUMERIC);
+        return $tiers;
+    }
+
+    /**
+     * @param float $total
+     * @param int $num
+     * @return float
+     */
+    private function webshareUnitPrice(float $total, int $num): float
+    {
+        $num = max(1, $num);
+        return (float)number_format($total / $num, 2, '.', '');
+    }
+
+    /**
+     * @param string $proxyType
+     * @param string $proxySubtype
+     * @param array $customize
+     * @param int $num
+     * @param string|null $preferredCountry
+     * @return array
+     */
+    private function webshareDefaultQuery(string $proxyType, string $proxySubtype, array $customize, int $num = 1, ?string $preferredCountry = null): array
+    {
+        $countries = $this->webshareCountries($customize);
+        $country = $this->webshareSelectCountry($countries, $preferredCountry);
+
+        $proxyCountMin = max(1, (int)($customize["proxy_count_min"] ?? 1));
+        $proxyCountMax = max($proxyCountMin, (int)($customize["proxy_count_max"] ?? $proxyCountMin));
+        $planNum = max(1, $num);
+        $proxyCount = $proxyCountMin * $planNum;
+        if ($proxyCount > $proxyCountMax) {
+            $proxyCount = $proxyCountMax;
+        }
+
+        $bandwidthMin = max(1, (int)($customize["bandwidth_limit_min"] ?? 1));
+        $subusersMin = max(1, (int)($customize["subusers_min"] ?? 1));
+        $term = "monthly";
+        if (!empty($customize["terms"]) && is_array($customize["terms"])) {
+            $term = (string)($customize["terms"][0]["term"] ?? $term);
+        }
+
+        $query = [
+            "proxy_type" => $proxyType,
+            "proxy_subtype" => $proxySubtype,
+            "proxy_countries" => [$country => $proxyCount],
+            "bandwidth_limit" => $bandwidthMin,
+            "on_demand_refreshes_total" => 0,
+            "automatic_refresh_frequency" => 0,
+            "proxy_replacements_total" => 0,
+            "subusers_total" => $subusersMin,
+            "term" => $term,
+            "with_tax" => false
+        ];
+
+        foreach ((array)($customize["available_features"] ?? []) as $feature) {
+            $name = (string)($feature["feature"] ?? "");
+            if ($name !== "") {
+                $query[$name] = false;
+            }
+        }
+
+        return $query;
+    }
+
+    /**
+     * @param string $domain
+     * @param string $appKey
+     * @param array $query
+     * @return float
+     * @throws JSONException
+     */
+    private function webshareFactoryPrice(string $domain, string $appKey, array $query): float
+    {
+        $pricing = $this->webshareRequest($domain, $appKey, "/api/v2/subscription/pricing/", "GET", [
+            "query" => json_encode($query, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+        ]);
+
+        $price = (float)($pricing["paid_today"] ?? $pricing["price"] ?? 0);
+        if ($price <= 0) {
+            $price = (float)($pricing["price"] ?? 0);
+        }
+        return $price;
+    }
+
+    /**
+     * @param string $code
+     * @return array
+     * @throws JSONException
+     */
+    private function webshareDecodeCode(string $code): array
+    {
+        $parts = explode("|", $code, 2);
+        if (count($parts) !== 2 || $parts[0] === "" || $parts[1] === "") {
+            throw new JSONException("Webshare商品编码格式错误");
+        }
+        return [$parts[0], $parts[1]];
+    }
+
+    /**
+     * @param \App\Model\Shared $shared
+     * @param string $proxyType
+     * @param string $proxySubtype
+     * @param bool $buildMatrix
+     * @return array
+     * @throws JSONException
+     */
+    private function webshareItem(\App\Model\Shared $shared, string $proxyType, string $proxySubtype, bool $buildMatrix = true): array
+    {
+        $customize = $this->webshareRequest($shared->domain, $shared->app_key, "/api/v2/subscription/customize/", "GET", [
+            "query" => json_encode([
+                "proxy_type" => $proxyType,
+                "proxy_subtype" => $proxySubtype
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+        ]);
+
+        $query = $this->webshareDefaultQuery($proxyType, $proxySubtype, $customize);
+        $factoryTotal = $this->webshareFactoryPrice($shared->domain, $shared->app_key, $query);
+
+        $country = (string)array_key_first((array)$query["proxy_countries"]);
+        $proxyCount = (int)($query["proxy_countries"][$country] ?? 1);
+        $factoryPrice = $this->webshareUnitPrice($factoryTotal, 1);
+        $proxyCountMin = max(1, (int)($customize["proxy_count_min"] ?? 1));
+        $proxyCountMax = max($proxyCountMin, (int)($customize["proxy_count_max"] ?? $proxyCountMin));
+        $maxPlans = max(1, (int)floor($proxyCountMax / max(1, $proxyCountMin)));
+
+        $category = [];
+        $categoryWholesale = [];
+
+        if ($buildMatrix) {
+            $countries = $this->webshareCountries($customize);
+            $pickCountries = [];
+
+            $defaultCountry = $this->webshareSelectCountry($countries, $country);
+            $pickCountries[$defaultCountry] = $defaultCountry;
+            foreach (["CN", "US"] as $pick) {
+                if (isset($countries[$pick])) {
+                    $pickCountries[$pick] = $pick;
+                }
+            }
+
+            $tiers = $this->webshareTierQuantities(1, $maxPlans);
+
+            foreach ($pickCountries as $countryCode) {
+                try {
+                    $baseQuery = $this->webshareDefaultQuery($proxyType, $proxySubtype, $customize, 1, $countryCode);
+                    $baseTotal = $this->webshareFactoryPrice($shared->domain, $shared->app_key, $baseQuery);
+                    $baseUnitPrice = $this->webshareUnitPrice($baseTotal, 1);
+                    $category[$countryCode] = $baseUnitPrice;
+
+                    foreach ($tiers as $tierNum) {
+                        $tierQuery = $this->webshareDefaultQuery($proxyType, $proxySubtype, $customize, $tierNum, $countryCode);
+                        $tierTotal = $this->webshareFactoryPrice($shared->domain, $shared->app_key, $tierQuery);
+                        $tierUnitPrice = $this->webshareUnitPrice($tierTotal, max(1, $tierNum));
+                        if ($tierNum === 1) {
+                            $categoryWholesale[$countryCode][$tierNum] = $baseUnitPrice;
+                            continue;
+                        }
+
+                        // 仅在上游总价随数量增长时记录阶梯价，避免出现“总价不变导致单价异常降低”。
+                        if ($tierUnitPrice > 0 && $tierTotal > $baseTotal) {
+                            $categoryWholesale[$countryCode][$tierNum] = $tierUnitPrice;
+                        }
+                    }
+                } catch (\Throwable $e) {
+                }
+            }
+        }
+
+        if (empty($category)) {
+            $category[$country] = $factoryPrice;
+        }
+
+        $stock = (int)($customize["proxy_count_max"] ?? 0);
+        if ($stock <= 0) {
+            $stock = 10000000;
+        }
+
+        $name = strtoupper($proxyType) . " / " . strtoupper($proxySubtype);
+        $description = "Webshare代理资源，类型：{$proxyType}/{$proxySubtype}。支持国家选择与阶梯数量，默认国家：{$country}。";
+
+        return [
+            "id" => "{$proxyType}|{$proxySubtype}",
+            "name" => $name,
+            "description" => $description,
+            "price" => $factoryPrice,
+            "user_price" => $factoryPrice,
+            "cover" => "https://www.webshare.io/favicon.ico",
+            "factory_price" => $factoryPrice,
+            "delivery_way" => 1,
+            "contact_type" => 0,
+            "password_status" => 0,
+            "sort" => 0,
+            "code" => "{$proxyType}|{$proxySubtype}",
+            "seckill_status" => 0,
+            "seckill_start_time" => "",
+            "seckill_end_time" => "",
+            "draft_status" => 0,
+            "draft_premium" => "0.00",
+            "inventory_hidden" => 0,
+            "only_user" => 0,
+            "purchase_count" => 0,
+            "minimum" => 1,
+            "maximum" => $maxPlans,
+            "widget" => "[]",
+            "stock" => (string)$stock,
+            "config" => Ini::toConfig([
+                "webshare_query" => $query,
+                "webshare_customize" => [
+                    "proxy_count_min" => (string)$proxyCountMin,
+                    "proxy_count_max" => (string)$proxyCountMax,
+                    "available_countries" => array_fill_keys(array_keys($category), "1")
+                ],
+                "category" => $category,
+                "category_wholesale" => $categoryWholesale
+            ])
+        ];
+    }
+
+    /**
+     * @param string $domain
+     * @param string $appKey
+     * @return int
+     * @throws JSONException
+     */
+    private function websharePaymentMethod(string $domain, string $appKey): int
+    {
+        $methods = $this->webshareRequest($domain, $appKey, "/api/v2/payment/method/", "GET", [
+            "page_size" => 1
+        ]);
+
+        $id = (int)($methods["results"][0]["id"] ?? 0);
+        if ($id <= 0) {
+            throw new JSONException("Webshare账号未找到可用支付方式，请先在Webshare后台绑定支付方式");
+        }
+        return $id;
+    }
+
+    /**
+     * @param string $domain
      * @param string $appId
      * @param string $appKey
      * @param int $type
@@ -102,6 +489,10 @@ class Shared implements \App\Service\Shared
         if ($type == 1) {
             $data = $this->mcyRequest($domain . "/plugin/open-api/connect", $appId, $appKey);
             return ["shopName" => $data['username'], "balance" => $data['balance']];
+        } elseif ($type == 3) {
+            $profile = $this->webshareRequest($domain, $appKey, "/api/v2/profile/");
+            $shopName = (string)($profile["email"] ?? $profile["id"] ?? "Webshare");
+            return ["shopName" => $shopName, "balance" => 0];
         }
         return $this->post($domain . "/shared/authentication/connect", $appId, $appKey);
     }
@@ -207,6 +598,36 @@ class Shared implements \App\Service\Shared
             }
 
             return $a;
+        } elseif ($shared->type == 3) {
+            $assets = $this->webshareRequest($shared->domain, $shared->app_key, "/api/v2/subscription/available_assets/");
+            $category = [];
+
+            foreach ($assets as $proxyType => $subtypes) {
+                if (!is_array($subtypes)) {
+                    continue;
+                }
+
+                $cateName = "Webshare/" . strtoupper((string)$proxyType);
+                if (!isset($category[$cateName])) {
+                    $category[$cateName] = [
+                        "name" => $cateName,
+                        "id" => 0,
+                        "children" => []
+                    ];
+                }
+
+                foreach ($subtypes as $proxySubtype => $value) {
+                    try {
+                        $item = $this->webshareItem($shared, (string)$proxyType, (string)$proxySubtype);
+                        $category[$cateName]["children"][] = $item;
+                    } catch (\Throwable $e) {
+                    }
+                }
+            }
+
+            return array_values(array_filter($category, static function ($item) {
+                return !empty($item["children"]);
+            }));
         }
 
 
@@ -250,6 +671,11 @@ class Shared implements \App\Service\Shared
             $b['stock'] = '10000000';
 
             return $b;
+        } elseif ($shared->type == 3) {
+            [$proxyType, $proxySubtype] = $this->webshareDecodeCode($code);
+            $item = $this->webshareItem($shared, $proxyType, $proxySubtype, false);
+            $item["config"] = Ini::toArray((string)$item["config"]);
+            return $item;
         }
         return $this->post($shared->domain . "/shared/commodity/item", $shared->app_id, $shared->app_key, [
             "code" => $code
@@ -277,6 +703,8 @@ class Shared implements \App\Service\Shared
                 'quantity' => $num
             ]);
             return (bool)$data['state'];
+        } elseif ($shared->type == 3) {
+            return true;
         }
 
         $this->post($shared->domain . "/shared/commodity/inventoryState", $shared->app_id, $shared->app_key, [
@@ -326,6 +754,69 @@ class Shared implements \App\Service\Shared
 
             $data = $this->mcyRequest($shared->domain . "/plugin/open-api/trade", $shared->app_id, $shared->app_key, $post);
             return $data['contents'] ?? "此商品没有发货信息或正在发货中";
+        } elseif ($shared->type == 3) {
+            $config = Ini::toArray((string)$commodity->config);
+            [$proxyType, $proxySubtype] = $this->webshareDecodeCode($commodity->shared_code);
+            $customize = (array)($config["webshare_customize"] ?? []);
+            $query = (array)($config["webshare_query"] ?? []);
+
+            if (empty($query) || empty($customize)) {
+                $item = $this->webshareItem($shared, $proxyType, $proxySubtype, false);
+                $itemConfig = Ini::toArray((string)$item["config"]);
+                $query = (array)($itemConfig["webshare_query"] ?? []);
+                $customize = (array)($itemConfig["webshare_customize"] ?? []);
+            }
+            if (empty($query)) {
+                throw new JSONException("Webshare商品配置缺失，请重新拉取商品");
+            }
+            $fallbackCountry = (string)array_key_first((array)($query["proxy_countries"] ?? []));
+
+            if (empty($customize)) {
+                $proxyCount = max(1, (int)($query["proxy_countries"][array_key_first((array)$query["proxy_countries"])] ?? 1));
+                $availableCountries = [];
+                foreach ((array)($config["category"] ?? []) as $countryCode => $ignore) {
+                    if (is_string($countryCode) && $countryCode !== "") {
+                        $availableCountries[strtoupper($countryCode)] = strtoupper($countryCode);
+                    }
+                }
+                if ($fallbackCountry !== "") {
+                    $availableCountries[strtoupper($fallbackCountry)] = strtoupper($fallbackCountry);
+                }
+
+                $customize = [
+                    "proxy_count_min" => $proxyCount,
+                    "proxy_count_max" => max($proxyCount, 100000),
+                    "available_countries" => $availableCountries
+                ];
+            }
+
+            $query = $this->webshareDefaultQuery(
+                $proxyType,
+                $proxySubtype,
+                $customize,
+                $num,
+                $race ?: $fallbackCountry
+            );
+
+            $paymentMethod = $this->websharePaymentMethod($shared->domain, $shared->app_key);
+            $factoryTotal = $this->webshareFactoryPrice($shared->domain, $shared->app_key, $query);
+            $factoryPrice = $this->webshareUnitPrice($factoryTotal, max(1, $num));
+
+            $purchase = $this->webshareRequest($shared->domain, $shared->app_key, "/api/v2/subscription/checkout/purchase/", "POST", [], array_merge($query, [
+                "payment_method" => $paymentMethod,
+                "recaptcha" => ""
+            ]));
+
+            $paymentRequired = (bool)($purchase["payment_required"] ?? false);
+            if ($paymentRequired) {
+                return "上游已创建待支付订单，PendingPayment#" . (int)($purchase["pending_payment"] ?? 0) . "，请联系管理员处理。";
+            }
+
+            // 仅同步成本价，不覆盖前台售卖价
+            $commodity->factory_price = $factoryPrice;
+            $commodity->save();
+
+            return "Webshare采购成功，计划ID：" . (int)($purchase["plan"] ?? 0) . "。本次总成本：$" . number_format($factoryTotal, 2) . "，单个成本：$" . number_format($factoryPrice, 2) . "。代理明细请后台在Webshare代理池分发。";
         }
 
         $post = [
@@ -434,6 +925,19 @@ class Shared implements \App\Service\Shared
             }
 
             return $result;
+        } elseif ($shared->type == 3) {
+            $item = $this->item($shared, $commodity->shared_code);
+            $isCategory = is_array($item["config"]["category"] ?? null) && !empty($item["config"]["category"]);
+            return [
+                "delivery_way" => 1,
+                "draft_status" => 0,
+                "price" => $item["price"],
+                "user_price" => $item["user_price"],
+                "config" => $item["config"],
+                "factory_price" => $item["factory_price"],
+                "is_category" => $isCategory,
+                "count" => (int)$item["stock"]
+            ];
         }
 
         $inventory = $this->post($shared->domain . "/shared/commodity/inventory", $shared->app_id, $shared->app_key, [
@@ -458,6 +962,8 @@ class Shared implements \App\Service\Shared
         if ($shared->type == 1) {
             return "10000000";
         } elseif ($shared->type == 2) {
+            return "10000000";
+        } elseif ($shared->type == 3) {
             return "10000000";
         }
         

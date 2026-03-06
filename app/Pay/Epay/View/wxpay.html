@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <title>微信 - 欢迎使用！</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="/assets/static/jquery.min.js"></script>
+    <script src="/assets/static/layer/layer.js"></script>
+    <script src="/assets/static/jquery.qrcode.min.js"></script>
+    <script src="/app/Pay/Epay/View/Assets/pay.js"></script>
+    <style type="text/css">
+        .hr-top {
+            margin-top: 20px;
+            border-top: 1px dashed #e5e5e5;
+            padding: 10px 0;
+            position: relative;
+        }
+    </style>
+    <link href="/app/Pay/Epay/View/Assets/css/pay.css" rel="stylesheet" type="text/css">
+</head>
+
+<body>
+<div class=" body">
+    <h1 class="mod-title">
+        <span class="ico_log ico-wxsm" style="margin-left: 50px;"></span>
+    </h1>
+
+    <div class="mod-ct" style="margin-top: 2px;">
+
+        <div class="pc">
+            <div style="font-size: 32px;padding-top: 20px;">请支付 <b style="color: red;">¥
+                    #{$order.amount}</b> 元
+            </div>
+            <div class="hr-top"></div>
+
+            <div class="qrcode-img-wrapper" data-role="qrPayImgWrapper">
+                <div data-role="qrPayImg" class="qrcode-img-area">
+                    <div class="ui-loading qrcode-loading" data-role="qrPayImgLoading" style="display: none;">加载中</div>
+                    <div style="position: relative;display: inline-block;">
+                        <div style="margin: 5px;display: block;" id="qrcode"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="footer">
+            <div>
+                <div class="tip ">
+                    <div class="ico-scan"></div>
+                    <div class="tip-text">
+                        <p>打开微信扫一扫</p>
+                        <p>手机使用相册扫</p>
+                    </div>
+                </div>
+            </div>
+            <div class="detail" id="orderDetail">
+                <dl class="detail-ct" id="desc" style="display: none;">
+                    <dt>金额</dt>
+                    <dd>#{$order.amount}</dd>
+                    <dt>商户订单：</dt>
+                    <dd id="ordernum">#{$order.trade_no}</dd>
+                    <dt>创建时间：</dt>
+                    <dd>#{$order.create_time}</dd>
+                    <dt>状态</dt>
+                    <dd>等待支付</dd>
+                </dl>
+                <a href="javascript:void(0)" class="arrow" style="z-index: 999999"><i class="ico-arrow"></i></a>
+            </div>
+        </div>
+    </div>
+
+    <script type="text/javascript">
+        let tradeNo = '#{$order.trade_no}';
+        let qrcode = "#{$order.pay_url}";
+
+        $('#qrcode').qrcode({
+            render: "canvas",
+            width: 200,
+            height: 200,
+            text: qrcode
+        });
+
+        if (pay.isMobile()) {
+            $('.mobile').show();
+        }
+
+        //查询订单
+        pay.queryTimer(tradeNo, null, res => {
+            layer.msg('支付成功');
+            setTimeout(() => {
+                window.location.href = "#{$option.returnUrl}";
+            }, 1000);
+        }, res => {
+            layer.msg('订单已被关闭');
+            setTimeout(() => {
+                window.location.href = "#{$option.returnUrl}";
+            }, 1000);
+        });
+
+        //点击小箭头事件
+        $('#orderDetail a').click(function () {
+            if ($('#orderDetail').hasClass('detail-open')) {
+                $('#orderDetail .detail-ct').slideUp(500, function () {
+                    $('#orderDetail').removeClass('detail-open');
+                });
+            } else {
+                $('#orderDetail .detail-ct').slideDown(500, function () {
+                    $('#orderDetail').addClass('detail-open');
+                });
+            }
+        });
+    </script>
+</div>
+</body>
+</html>

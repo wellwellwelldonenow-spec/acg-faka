@@ -223,6 +223,64 @@
                             </div>
                             <!--end::Input group-->
 
+                            <div class="separator separator-dashed my-8"></div>
+
+                            <!--begin::Input group-->
+                            <div class="row mb-6">
+                                <!--begin::Label-->
+                                <label class="col-lg-4 col-form-label fw-bold fs-6">号码认证（阿里云）</label>
+                                <!--end::Label-->
+                                <!--begin::Col-->
+                                <div class="col-lg-8 fv-row">
+                                    <label class="form-check form-check-inline form-check-solid me-5">
+                                        <input class="form-check-input" name="numberAuthEnabled"
+                                               type="checkbox"
+                                               value="1" #{if isset($sms.numberAuthEnabled) && $sms.numberAuthEnabled== 1} checked #{/if}>
+                                        <span class="fw-bold ps-2 fs-6">启用号码认证</span>
+                                    </label>
+                                    <label class="form-check form-check-inline form-check-solid me-5">
+                                        <input class="form-check-input" name="numberAuthRequired"
+                                               type="checkbox"
+                                               value="1" #{if isset($sms.numberAuthRequired) && $sms.numberAuthRequired== 1} checked #{/if}>
+                                        <span class="fw-bold ps-2 fs-6">注册强制校验</span>
+                                    </label>
+                                </div>
+                                <!--end::Col-->
+                            </div>
+                            <!--end::Input group-->
+
+                            <!--begin::Input group-->
+                            <div class="row mb-6">
+                                <!--begin::Label-->
+                                <label class="col-lg-4 col-form-label fw-bold fs-6">AccessKeyId</label>
+                                <!--end::Label-->
+                                <!--begin::Col-->
+                                <div class="col-lg-8 fv-row">
+                                    <input type="text" name="numberAuthAccessKeyId"
+                                           class="form-control form-control-lg form-control-solid"
+                                           placeholder="号码认证服务 AccessKeyId"
+                                           value="#{if isset($sms.numberAuthAccessKeyId)}#{$sms.numberAuthAccessKeyId}#{/if}"/>
+                                </div>
+                                <!--end::Col-->
+                            </div>
+                            <!--end::Input group-->
+
+                            <!--begin::Input group-->
+                            <div class="row mb-6">
+                                <!--begin::Label-->
+                                <label class="col-lg-4 col-form-label fw-bold fs-6">AccessKeySecret</label>
+                                <!--end::Label-->
+                                <!--begin::Col-->
+                                <div class="col-lg-8 fv-row">
+                                    <input type="text" name="numberAuthAccessKeySecret"
+                                           class="form-control form-control-lg form-control-solid"
+                                           placeholder="号码认证服务 AccessKeySecret"
+                                           value="#{if isset($sms.numberAuthAccessKeySecret)}#{$sms.numberAuthAccessKeySecret}#{/if}"/>
+                                </div>
+                                <!--end::Col-->
+                            </div>
+                            <!--end::Input group-->
+
                         </div>
                         <!--end::Card body-->
                         <!--begin::Actions-->

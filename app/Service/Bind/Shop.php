@@ -180,22 +180,28 @@ class Shop implements \App\Service\Shop
                 $new = Commodity::query()->find($commodity->id);
 
                 $remoteItem = $this->shared->item($shared, $new->shared_code);
+                $commodity->factory_price = $new->factory_price = (float)($remoteItem['factory_price'] ?? $new->factory_price);
 
-                $base = $this->shared->AdjustmentPrice(Ini::toConfig($remoteItem['config'] ?: []), (string)$remoteItem['price'], (string)$remoteItem['user_price'], $new->shared_premium_type, $new->shared_premium);
+                // Webshare 仅同步成本价与库存，不覆盖前台售卖价
+                if ((int)$shared->type === 3) {
+                    $commodity->stock = $new->stock = $remoteItem['stock'] ?? $new->stock;
+                } else {
+                    $base = $this->shared->AdjustmentPrice(Ini::toConfig($remoteItem['config'] ?: []), (string)$remoteItem['price'], (string)$remoteItem['user_price'], $new->shared_premium_type, $new->shared_premium);
 
-                $commodity->price = $new->price = $base['price'];
-                $commodity->user_price = $new->user_price = $base['user_price'];
-                $commodity->config = $new->config = Ini::toConfig($base['config']);
-                $commodity->draft_status = $new->draft_status = $remoteItem['draft_status'];
-                $commodity->draft_premium = $new->draft_premium = $remoteItem['draft_premium'] > 0 ? $this->shared->AdjustmentAmount($new->shared_premium_type, $new->shared_premium, $remoteItem['draft_premium']) : 0;
-                $commodity->seckill_status = $new->seckill_status = $remoteItem['seckill_status'];
-                $commodity->seckill_start_time = $new->seckill_start_time = $remoteItem['seckill_start_time'];
-                $commodity->seckill_end_time = $new->seckill_end_time = $remoteItem['seckill_end_time'];
-                $commodity->widget = $new->widget = is_array($remoteItem['widget']) ? json_encode($remoteItem['widget']) : $remoteItem['widget'];
-                $commodity->minimum = $new->minimum = $remoteItem['minimum'];
-                $commodity->maximum = $new->maximum = $remoteItem['maximum'];
-                $commodity->stock = $new->stock = $remoteItem['stock'];
-                $commodity->contact_type = $new->contact_type = $remoteItem['contact_type'];
+                    $commodity->price = $new->price = $base['price'];
+                    $commodity->user_price = $new->user_price = $base['user_price'];
+                    $commodity->config = $new->config = Ini::toConfig($base['config']);
+                    $commodity->draft_status = $new->draft_status = $remoteItem['draft_status'];
+                    $commodity->draft_premium = $new->draft_premium = $remoteItem['draft_premium'] > 0 ? $this->shared->AdjustmentAmount($new->shared_premium_type, $new->shared_premium, $remoteItem['draft_premium']) : 0;
+                    $commodity->seckill_status = $new->seckill_status = $remoteItem['seckill_status'];
+                    $commodity->seckill_start_time = $new->seckill_start_time = $remoteItem['seckill_start_time'];
+                    $commodity->seckill_end_time = $new->seckill_end_time = $remoteItem['seckill_end_time'];
+                    $commodity->widget = $new->widget = is_array($remoteItem['widget']) ? json_encode($remoteItem['widget']) : $remoteItem['widget'];
+                    $commodity->minimum = $new->minimum = $remoteItem['minimum'];
+                    $commodity->maximum = $new->maximum = $remoteItem['maximum'];
+                    $commodity->stock = $new->stock = $remoteItem['stock'];
+                    $commodity->contact_type = $new->contact_type = $remoteItem['contact_type'];
+                }
 
                 $new->save();
             }

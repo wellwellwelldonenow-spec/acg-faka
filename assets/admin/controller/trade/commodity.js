@@ -1,5 +1,6 @@
 !function () {
     let table, _createForms = [];
+    const currencySymbol = (currency) => currency && currency !== 'CNY' ? `${currency} ` : '¥';
     const modal = (title, assign = {}) => {
 
         const owner = assign?.owner ? assign?.owner.id : 0;
@@ -295,6 +296,39 @@
                 {
                     name: util.icon("fa-duotone fa-regular fa-gears") + " 配置参数",
                     form: [
+                        {
+                            title: false,
+                            name: "webshare_preset",
+                            type: "custom",
+                            complete: (form, dom) => {
+                                dom.html(`
+<div class="alert alert-warning d-flex flex-column gap-2" style="margin-bottom: 12px;">
+  <div><b>Webshare 预设</b>：一键注入国家/流量/定期更换等控件，并把商品切成 API 自动发货模式。</div>
+  <div>
+    <button type="button" class="btn btn-sm btn-primary btn-webshare-subscription">套用住宅代理预设</button>
+  </div>
+</div>`);
+
+                                dom.find('.btn-webshare-subscription').off('click').on('click', () => {
+                                    message.ask('这会覆盖当前商品的控件与 Webshare 配置，是否继续？', () => {
+                                        util.get('/admin/api/commodity/websharePreset?preset=subscription_residential', res => {
+                                            const widget = JSON.stringify(res.data.widget || []);
+                                            form.setTextarea('config', res.data.config || '');
+                                            form.setData('config', res.data.config || '');
+                                            form.widgetRegister({name: 'widget', default: widget});
+                                            form.setData('widget', widget);
+                                            form.setRadio('delivery_way', 1, true);
+                                            form.setData('delivery_way', 1);
+                                            form.setInput('stock', 1000000);
+                                            form.setData('stock', 1000000);
+                                            form.show('stock');
+                                            form.hide('delivery_message');
+                                            layer.msg(res.data.tips || 'Webshare 预设已套用，请再检查售价与商品名称');
+                                        });
+                                    });
+                                });
+                            }
+                        },
                         {title: false, name: "config", type: "textarea", placeholder: "配置参数", height: 480},
                         {
                             title: false, name: "config_tips", type: "custom", complete: (_, __) => {
@@ -706,8 +740,28 @@ ACC_JP_6M_0KLD-22MM-PP31║地区:日区·时长:6个月
                 return item.stock;
             }
         }
-        , {field: 'price', title: '零售价'}
-        , {field: 'user_price', title: '会员价'}
+        , {field: 'price', title: '零售价', formatter: _ => format.money(_, 'green')}
+        , {field: 'user_price', title: '会员价', formatter: _ => format.money(_, '#447cf3')}
+        , {
+            field: 'upstream_cost', title: '上游成本', formatter: (val, row) => {
+                const amount = format.amountRemoveTrailingZeros(val || 0);
+                const currency = row.upstream_currency || 'CNY';
+                if (currency === 'CNY') {
+                    return format.money(amount, '#9b59b6');
+                }
+                return `<span style="color:#9b59b6;font-weight:bolder;">${currency} ${amount}</span>`;
+            }
+        }
+        , {
+            field: 'margin_rate', title: '毛利率', formatter: (val, row) => {
+                if (val === null || typeof val === 'undefined') {
+                    return '-';
+                }
+                const color = Number(val) >= 0 ? '#14a44d' : '#dc3545';
+                const amount = format.amountRemoveTrailingZeros(row.margin_amount || 0);
+                return `<span style="color:${color};font-weight:bolder;">${val}%</span><br><span style="color:${color};">毛利 ${currencySymbol(row.upstream_currency)}${amount}</span>`;
+            }
+        }
         , {field: 'order_today_amount', title: '今日'}
         , {field: 'order_yesterday_amount', title: '昨日'}
         , {field: 'order_week_amount', title: '本周'}
@@ -762,6 +816,32 @@ ACC_JP_6M_0KLD-22MM-PP31║地区:日区·时长:6个月
                     }
                 },
                 {
+                    icon: 'fa-duotone fa-regular fa-shuffle',
+                    class: "text-info",
+                    show: row => row.webshare_supported !== true && row.shared && row.shared.app_id === 'webshare',
+                    click: (event, value, row, index) => {
+                        message.ask(`确定将商品【${row.name}】转换为直连 Webshare 商品吗？`, () => {
+                            util.post('/admin/api/commodity/webshareConvert', {id: row.id}, res => {
+                                message.success(`转换完成，成功 ${res.data.success} 个`);
+                                table.refresh();
+                            });
+                        });
+                    }
+                },
+                {
+                    icon: 'fa-duotone fa-regular fa-rotate',
+                    class: "text-success",
+                    show: row => row.webshare_supported === true,
+                    click: (event, value, row, index) => {
+                        message.ask(`确定同步商品【${row.name}】的上游成本吗？`, () => {
+                            util.post('/admin/api/commodity/webshareSyncCost', {id: row.id}, res => {
+                                message.success(`同步成功，最新成本：${res.data.upstream_currency || 'USD'} ${format.amountRemoveTrailingZeros(res.data.factory_price || 0)}`);
+                                table.refresh();
+                            });
+                        });
+                    }
+                },
+                {
                     icon: 'fa-duotone fa-regular fa-trash-can',
                     class: "text-danger",
                     click: (event, value, row, index) => {
@@ -781,6 +861,28 @@ ACC_JP_6M_0KLD-22MM-PP31║地区:日区·时长:6个月
         {field: 'id', title: '商品ID'},
         {
             field: 'card_success_count', title: '已出售'
+        },
+        {
+            field: 'upstream_cost', title: '当前上游成本', formatter: (val, row) => {
+                const amount = format.amountRemoveTrailingZeros(val || 0);
+                return `${currencySymbol(row.upstream_currency)}${amount}`;
+            }
+        },
+        {
+            field: 'margin_amount', title: '零售价毛利', formatter: (val, row) => {
+                if (typeof val === 'undefined') {
+                    return '-';
+                }
+                return `${currencySymbol(row.upstream_currency)}${format.amountRemoveTrailingZeros(val || 0)} / ${row.margin_rate ?? '-'}%`;
+            }
+        },
+        {
+            field: 'user_margin_amount', title: '会员价毛利', formatter: (val, row) => {
+                if (typeof val === 'undefined') {
+                    return '-';
+                }
+                return `${currencySymbol(row.upstream_currency)}${format.amountRemoveTrailingZeros(val || 0)} / ${row.user_margin_rate ?? '-'}%`;
+            }
         },
         {
             field: 'api_status', title: 'API对接', dict: "_commodity_api_status"

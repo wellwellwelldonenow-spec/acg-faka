@@ -1,0 +1,6 @@
+/runtime/
+/runtime.log
+/.codex-backup-*/
+/.codex-webshare-*/
+/assets/cache/
+/kernel/Install/Lock

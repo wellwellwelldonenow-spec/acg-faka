@@ -11,6 +11,7 @@ use App\Entity\Query\Save;
 use App\Interceptor\ManageSession;
 use App\Model\ManageLog;
 use App\Service\Query;
+use App\Service\Webshare;
 use App\Util\Client;
 use App\Util\Date;
 use App\Util\Ini;
@@ -19,6 +20,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Kernel\Annotation\Inject;
 use Kernel\Annotation\Interceptor;
+use Kernel\Container\Di;
 use Kernel\Context\Interface\Request;
 use Kernel\Exception\JSONException;
 use Kernel\Exception\NotFoundException;
@@ -30,6 +32,9 @@ class Commodity extends Manage
 {
     #[Inject]
     private Query $query;
+
+    #[Inject]
+    private Webshare $webshare;
 
     /**
      * @return array
@@ -97,6 +102,26 @@ class Commodity extends Manage
                 }
             }
             $val['share_url'] = $url . "/item/{$val['id']}";
+            $val['webshare_supported'] = false;
+
+            try {
+                $commodity = new \App\Model\Commodity();
+                $commodity->forceFill($val);
+                $val['webshare_supported'] = $this->webshare->isSupportedCommodity($commodity);
+            } catch (\Throwable) {
+            }
+
+            $val['upstream_cost'] = (float)($val['factory_price'] ?? 0);
+            $val['upstream_price'] = (float)($val['factory_price'] ?? 0);
+            $val['upstream_currency'] = 'CNY';
+
+            $price = (float)($val['price'] ?? 0);
+            $userPrice = (float)($val['user_price'] ?? 0);
+            $upstreamCost = (float)($val['upstream_cost'] ?? 0);
+            $val['margin_amount'] = round($price - $upstreamCost, 2);
+            $val['margin_rate'] = $price > 0 ? round(($val['margin_amount'] / $price) * 100, 2) : null;
+            $val['user_margin_amount'] = round($userPrice - $upstreamCost, 2);
+            $val['user_margin_rate'] = $userPrice > 0 ? round(($val['user_margin_amount'] / $userPrice) * 100, 2) : null;
         }
 
 
@@ -221,5 +246,107 @@ class Commodity extends Manage
         \App\Model\Commodity::query()->whereIn('id', $list)->update($_POST);
         ManageLog::log($this->getManage(), "[批量更新]商品状态");
         return $this->json(200, '更新成功');
+    }
+
+    /**
+     * @throws JSONException
+     */
+    public function websharePreset(): array
+    {
+        $preset = (string)($_GET['preset'] ?? 'subscription_residential');
+        return $this->json(200, 'success', $this->webshare->getPreset($preset));
+    }
+
+    public function webshareSyncCost(): array
+    {
+        try {
+            $id = (int)($_POST['id'] ?? 0);
+            if ($id < 1) {
+                throw new JSONException('商品ID不能为空');
+            }
+
+            $commodity = \App\Model\Commodity::query()->find($id);
+            if (!$commodity) {
+                throw new JSONException('商品不存在');
+            }
+
+            if (!$this->webshare->isSupportedCommodity($commodity)) {
+                throw new JSONException('当前商品不是 Webshare 商品');
+            }
+
+            $result = $this->webshare->syncCommodityCost($commodity);
+            return $this->json(200, '同步成功', [
+                'id' => $commodity->id,
+                'factory_price' => (float)($result['cost'] ?? $commodity->factory_price),
+                'upstream_price' => (float)($result['price'] ?? $commodity->factory_price),
+                'upstream_currency' => (string)($result['currency'] ?? 'USD'),
+                'payload' => $result['payload'] ?? [],
+            ]);
+        } catch (\Throwable $e) {
+            return $this->json(500, '同步失败：' . $e->getMessage());
+        }
+    }
+
+    public function webshareConvert(): array
+    {
+        $list = $_POST['list'] ?? [];
+        $id = (int)($_POST['id'] ?? 0);
+
+        if ($id > 0) {
+            $list = [$id];
+        }
+
+        if (!is_array($list)) {
+            $list = [$list];
+        }
+
+        $ids = array_values(array_unique(array_filter(array_map('intval', $list))));
+        if (empty($ids)) {
+            return $this->json(500, '请选择要转换的商品');
+        }
+
+        $success = 0;
+        $fail = [];
+
+        $commodities = \App\Model\Commodity::query()->whereIn('id', $ids)->get();
+        foreach ($commodities as $commodity) {
+            try {
+                if ($this->webshare->isSupportedCommodity($commodity)) {
+                    $success++;
+                    continue;
+                }
+
+                if (!$commodity->shared || ($commodity->shared->app_id ?? '') !== 'webshare') {
+                    throw new JSONException('不是 Webshare 共享商品');
+                }
+
+                $payload = $this->webshare->convertSharedCommodity($commodity);
+                \App\Model\Commodity::query()->where('id', $commodity->id)->update([
+                    'shared_id' => 0,
+                    'shared_code' => '',
+                    'shared_premium' => 0,
+                    'shared_premium_type' => 0,
+                    'shared_sync' => 0,
+                    'inventory_sync' => 0,
+                    'delivery_way' => 1,
+                    'widget' => $payload['widget'],
+                    'config' => $payload['config'],
+                    'stock' => $payload['stock'],
+                ]);
+                $success++;
+            } catch (\Throwable $e) {
+                $fail[] = [
+                    'id' => $commodity->id,
+                    'name' => $commodity->name,
+                    'msg' => $e->getMessage(),
+                ];
+            }
+        }
+
+        ManageLog::log($this->getManage(), '[Webshare共享商品转直连]成功:' . $success . ' 失败:' . count($fail));
+        return $this->json(200, '转换完成', [
+            'success' => $success,
+            'fail' => $fail,
+        ]);
     }
 }

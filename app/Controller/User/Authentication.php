@@ -44,7 +44,8 @@ class Authentication extends User
             Client::redirect("/user/authentication/login", "抱歉，注册暂时关闭", 1);
         }
 
-        return $this->theme("注册", "REGISTER", "Authentication/Register.html");
+        $smsConfig = (array)json_decode((string)Config::get("sms_config"), true);
+        return $this->theme("注册", "REGISTER", "Authentication/Register.html", ["sms" => $smsConfig]);
     }
 
     /**

@@ -1,0 +1,230 @@
+#{include file=$default_view_path|cat:"/Common/Header.html"}
+<style>
+    .layui-layer-page .layui-layer-content {
+        overflow-wrap: break-word;
+    }
+
+    .more-table td {
+        border-width: 1px !important;
+        border-style: solid !important;
+        border-color: rgba(241, 195, 195, 0.27) !important;
+    }
+</style>
+<div class="layui-container fly-marginTop fly-user-main">
+    #{include file=$default_view_path|cat:"/Common/Nav.html"}
+    <div class="fly-panel fly-panel-user" pad20>
+        <div class="layui-tab layui-tab-brief" lay-filter="user">
+            <div class="content-header">
+                <i class="layui-icon">&#xe638;</i> IP代理管理
+            </div>
+
+            <div class="content-body">
+                <div>#{$notice}</div>
+
+                <form class="layui-form form-data">
+                    <div class="form-block">
+                        <div class="layui-inline">
+                            <div class="form-header">根据类型查询</div>
+                            <div class="form-body" style="color: #ff9191;width: 320px;">
+                                <select name="proxy_type" lay-filter="proxy_type">
+                                    <option value="0">全部显示</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-block">
+
+                        <div style="margin-top: 14px;width: 90px; " class="layui-inline">
+                            <select name="proxy_buy_num" lay-filter="proxy_buy_num">
+                                <option value="1">1个月</option>
+                                <option value="2">2个月</option>
+                                <option value="3">3个月</option>
+                                <option value="4">4个月</option>
+                                <option value="5">5个月</option>
+                                <option value="6">半年</option>
+                                <option value="12">1年</option>
+                                <option value="24">2年</option>
+                            </select>
+                        </div>
+
+                        <div style="margin-top: 14px; " class="layui-inline">
+                            <button type="button" class="layui-btn layui-btn-pink proxy-buy">续费选中代理(余额消费)
+                            </button>
+                        </div>
+
+                    </div>
+
+
+                </form>
+
+
+                <table id="order" lay-filter="order"></table>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+<script>
+    $(function () {
+        layui.use(['hex', 'form'], function () {
+            let table = $("#order");
+            let form = layui.form;
+            let cao = layui.hex;
+            let proxyMap = {};
+
+
+            table.bootstrapTable({
+                url: '/plugin/proxyClient/api/data?user=' + "#{$usr}",//请求的url地址
+                method: "post",//请求方式
+                pageSize: 10,//每页显示的数量
+                showRefresh: false,//是否显示刷新按钮
+                cache: false,//是否使用缓存
+                showToggle: false,//是否显示详细视图和列表视图的切换按钮
+                cardView: false,
+                pagination: false,//是否显示分页
+                pageNumber: 1,//初始化显示第几页，默认第1页
+                singleSelect: false,//复选框只能选择一条记录
+                sidePagination: 'server',//分页显示方式，可以选择客户端和服务端（server|client）
+                contentType: "application/x-www-form-urlencoded",//使用post请求时必须加上
+                dataType: "json",//接收的数据类型
+                queryParamsType: 'limit',//参数格式，发送标准的Restful类型的请求
+                //回调函数
+                responseHandler: function (res) {
+                    res.data.forEach(item => {
+                        proxyMap[item.id] = item;
+                    });
+                    return {
+                        "total": res.count,
+                        "rows": res.data
+                    }
+                },
+                columns: [
+                    {checkbox: true}
+                    , {
+                        field: 'type', title: '代理类型', formatter: function (val, item) {
+                            return '<span class="acg-badge acg-badge-light-primary">' + item.type + '</span>';
+                        }
+                    },
+                    {
+                        field: 'address', title: '地址', formatter: function (val, item) {
+                            return '<span class="address-' + item.id + '">' + item.address + '</span>';
+                        }
+                    }
+                    , {
+                        field: 'expire', title: '到期时间', formatter: function (val, item) {
+                            if (item.expire < 7) {
+                                return '<span class="acg-badge acg-badge-light-red expire-' + item.id + '">' + item.expire + ' 天(即将到期)</span>';
+                            }
+                            return '<span class="acg-badge acg-badge-light-success expire-' + item.id + '">' + item.expire + ' 天</span>';
+                        }
+                    },
+                    {
+                        field: 'operate',
+                        visible: cao.getColumnVisible('user', 'operate'),
+                        title: '',
+                        formatter: function (val, item) {
+                            return '<a  class="layui-badge layui-bg-gray edit" style="cursor: pointer;"><i class="layui-icon" style="font-size: 12px;">&#xe614;</i></a>';
+                        },
+                        events: {
+                            'click .edit': function (event, value, row, index) {
+                                cao.popup('/plugin/proxyClient/api/edit', [
+                                    {
+                                        title: "id",
+                                        name: "id",
+                                        type: "hidden"
+                                    }, {
+                                        title: "账号",
+                                        name: "username",
+                                        type: "input",
+                                        placeholder: "设置新账号(6位以上)"
+                                    },
+                                    {
+                                        title: "密码",
+                                        name: "password",
+                                        type: "input",
+                                        placeholder: "设置新密码(6位以上)"
+                                    },
+                                ], res => {
+                                    console.log(res);
+                                    $(".address-" + row.id).css({"color": "red"}).html(res.data.address);
+                                }, {id: row.id}, '460px', false, '修改IP信息');
+
+                            }
+                        }
+                    }
+
+                ]
+            });
+
+
+            cao.$get("/plugin/proxyClient/api/type", res => {
+                res.forEach(item => {
+                    $('select[name=proxy_type]').append('<option value="' + item.id + '">' + item.name + '</option>');
+                });
+                form.render("select");
+            });
+
+
+            form.on('select(proxy_type)', function (data) {
+                table.bootstrapTable('refresh', {
+                    silent: false,
+                    pageNumber: 1,
+                    query: {
+                        type_id: data.value
+                    }
+                });
+            });
+
+
+            function renew(list, nums) {
+                if (list.length <= 0) {
+                    return;
+                }
+                let id = list.shift();
+                let item = proxyMap[id];
+                let ext = JSON.parse(item.ext);
+                $('.expire-' + id).html("正在续费..");
+                $.post("/plugin/proxyClient/api/buy", {
+                    proxy_id: id,
+                    commodity_id: ext.commodity,
+                    race: ext.race,
+                    num: nums
+                }, res => {
+                    renew(list, nums);
+                    if (res.code == 200) {
+                        let parse = JSON.parse(res.data.secret);
+                        $('.expire-' + id).html(parse.expire + " 天");
+                    } else {
+
+                        if (res.msg) {
+                            $('.expire-' + id).html(res.msg);
+                        } else {
+                            $('.expire-' + id).html("续费失败,请重试");
+                        }
+
+                    }
+                });
+            }
+
+
+            $('.proxy-buy').click(() => {
+                let data = cao.listObjectToArray(table.bootstrapTable('getSelections'));
+                if (data.length == 0) {
+                    layer.msg("至少勾选1条代理在进行操作！");
+                    return;
+                }
+                layer.confirm('您正在通过余额进行续费，如果余额不足将续费失败。', {
+                    btn: ['确定续费', '取消']
+                }, function () {
+                    layer.msg("正在进行批量续费..");
+                    let nums = parseInt($("select[name=proxy_buy_num]").val());
+                    renew(data, nums);
+                });
+            });
+
+        });
+    });
+</script>
+#{include file=$default_view_path|cat:"/Common/Footer.html"}

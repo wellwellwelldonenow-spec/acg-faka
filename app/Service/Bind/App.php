@@ -294,70 +294,66 @@ class App implements \App\Service\App
     public function update(): void
     {
         $versions = $this->getVersions();
-        $latestVersion = $versions[0]['version'];
-        $localVersion = config("app")['version'];
-        if ($latestVersion == $localVersion) {
+        $latestVersion = (string)$versions[0]['version'];
+        $localVersion = (string)config("app")['version'];
+        if (version_compare($localVersion, $latestVersion, '>=')) {
             throw new JSONException("你已经是最新版本了");
         }
 
-        $vrs = array_reverse($versions);
-        $startVersion = 0;
+        $pendingVersions = array_values(array_filter($versions, static function ($version) use ($localVersion) {
+            return version_compare((string)$version['version'], $localVersion, '>');
+        }));
 
-        foreach ($vrs as $index => $vr) {
-            if ($vr['version'] == $localVersion) {
-                $startVersion = $index;
-                break;
+        usort($pendingVersions, static function ($left, $right) {
+            return version_compare((string)$left['version'], (string)$right['version']);
+        });
+
+        foreach ($pendingVersions as $val) {
+            //下载完成，写入到本地缓存目录
+            $zipPath = BASE_PATH . '/kernel/Install/Update/' . $val['version'];
+
+            //下载更新包
+            if (!Http::download($val['update_url'], $zipPath . '/update.zip')) {
+                throw new JSONException("更新包下载失败");
             }
-        }
 
-        foreach ($vrs as $key => $val) {
-            if ($startVersion < $key) {
-                //下载完成，写入到本地缓存目录
-                $zipPath = BASE_PATH . '/kernel/Install/Update/' . $val['version'];
-
-                //下载更新包
-                if (!Http::download($val['update_url'], $zipPath . '/update.zip')) {
-                    throw new JSONException("更新包下载失败");
-                }
-
-                if (!Zip::unzip($zipPath . '/update.zip', $zipPath)) {
-                    throw new JSONException("ZIP解压缩失败，请检查程序是否有写入权限！");
-                }
-
-                //升级数据库
-                $sql = $zipPath . '/update.sql';
-
-                if (file_exists($sql)) {
-                    //导入数据库
-                    $database = config("database");
-                    SQL::import($sql, $database['host'], $database['database'], $database['username'], $database['password'], $database['prefix']);
-                }
-
-                //升级程序，防止sql等命令错误，通过php代码来执行sql，新增时间：2022/04/07
-                $ext = $zipPath . '/update.php';
-                if (file_exists($ext)) {
-                    require($ext);
-                    $class = "\\Version" . str_replace(".", "", $val['version']) . "\\Update";
-                    if (!class_exists($class)) {
-                        throw new JSONException("更新主类未装载成功，请重试");
-                    }
-                    $updateObj = new $class();
-                    if (!method_exists($updateObj, "handle")) {
-                        throw new JSONException("更新子程序不存在，请重试");
-                    }
-                    $updateObj->handle();
-                }
-
-                //升级程序
-                try {
-                    File::copyDirectory($zipPath . '/file', BASE_PATH);
-                } catch (\Exception $e) {
-                    throw new JSONException("程序升级失败，没有写入目录权限！");
-                }
-
-                //升级完成，记录版本号
-                setConfig(["version" => $val["version"]], BASE_PATH . "/config/app.php");
+            if (!Zip::unzip($zipPath . '/update.zip', $zipPath)) {
+                throw new JSONException("ZIP解压缩失败，请检查程序是否有写入权限！");
             }
+
+            //升级数据库
+            $sql = $zipPath . '/update.sql';
+
+            if (file_exists($sql)) {
+                //导入数据库
+                $database = config("database");
+                SQL::import($sql, $database['host'], $database['database'], $database['username'], $database['password'], $database['prefix']);
+            }
+
+            //升级程序，防止sql等命令错误，通过php代码来执行sql，新增时间：2022/04/07
+            $ext = $zipPath . '/update.php';
+            if (file_exists($ext)) {
+                require($ext);
+                $class = "\\Version" . str_replace(".", "", $val['version']) . "\\Update";
+                if (!class_exists($class)) {
+                    throw new JSONException("更新主类未装载成功，请重试");
+                }
+                $updateObj = new $class();
+                if (!method_exists($updateObj, "handle")) {
+                    throw new JSONException("更新子程序不存在，请重试");
+                }
+                $updateObj->handle();
+            }
+
+            //升级程序
+            try {
+                File::copyDirectory($zipPath . '/file', BASE_PATH);
+            } catch (\Exception $e) {
+                throw new JSONException("程序升级失败，没有写入目录权限！");
+            }
+
+            //升级完成，记录版本号
+            setConfig(["version" => $val["version"]], BASE_PATH . "/config/app.php");
         }
     }
 

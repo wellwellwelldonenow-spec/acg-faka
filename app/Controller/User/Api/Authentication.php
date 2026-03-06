@@ -11,6 +11,7 @@ use App\Model\Config;
 use App\Service\Email;
 use App\Service\Sms;
 use App\Service\UserSSO;
+use App\Util\AliyunNumberAuth;
 use App\Util\Captcha;
 use App\Util\Date;
 use App\Util\Str;
@@ -49,6 +50,9 @@ class Authentication extends User
         $registeredPhoneVerification = (int)Config::get("registered_phone_verification");
         $registeredVerification = (int)Config::get("registered_verification");
         $usernameLen = (int)Config::get("username_len");
+        $smsConfig = $this->getSmsConfig();
+        $numberAuthEnabled = (int)($smsConfig['numberAuthEnabled'] ?? 0);
+        $numberAuthRequired = (int)($smsConfig['numberAuthRequired'] ?? 0);
 
         if ($registeredState == 0) {
             throw new JSONException("注册已关闭");
@@ -90,6 +94,11 @@ class Authentication extends User
             //phone
             if (!isset($_POST['phone']) || !Validation::phone((string)$_POST['phone'])) {
                 throw new JSONException("手机号码不正确");
+            }
+
+            //号码认证（阿里云一键认证 AccessToken）
+            if ($numberAuthEnabled === 1) {
+                $this->verifyPhoneNumberAuth((string)$_POST['phone'], $smsConfig, $numberAuthRequired === 1);
             }
 
             //验证手机验证码
@@ -136,6 +145,27 @@ class Authentication extends User
 
         hook(Hook::USER_API_AUTH_REGISTER_AFTER, $user);
         return $this->json(200, '注册成功');
+    }
+
+    /**
+     * 手机号号码认证预校验
+     * @return array
+     * @throws JSONException
+     */
+    public function phoneNumberAuth(): array
+    {
+        $smsConfig = $this->getSmsConfig();
+        if ((int)($smsConfig['numberAuthEnabled'] ?? 0) !== 1) {
+            throw new JSONException("号码认证未启用");
+        }
+
+        $phone = trim((string)($_POST['phone'] ?? ''));
+        if (!Validation::phone($phone)) {
+            throw new JSONException("手机号码不正确");
+        }
+
+        $this->verifyPhoneNumberAuth($phone, $smsConfig, true);
+        return $this->json(200, "号码认证成功");
     }
 
     /**
@@ -263,6 +293,36 @@ class Authentication extends User
         }
 
         return $this->phoneCaptcha("phoneForgetCaptcha", Sms::CAPTCHA_FORGET);
+    }
+
+    /**
+     * @return array
+     */
+    private function getSmsConfig(): array
+    {
+        return (array)json_decode((string)Config::get("sms_config"), true);
+    }
+
+    /**
+     * @param string $phone
+     * @param array $smsConfig
+     * @param bool $required
+     * @throws JSONException
+     */
+    private function verifyPhoneNumberAuth(string $phone, array $smsConfig, bool $required): void
+    {
+        $token = trim((string)($_POST['number_auth_token'] ?? $_POST['access_token'] ?? $_POST['accessToken'] ?? ''));
+        if ($token === "") {
+            if ($required) {
+                throw new JSONException("请先完成号码认证");
+            }
+            return;
+        }
+
+        $mobile = AliyunNumberAuth::getMobile($smsConfig, $token);
+        if ($mobile !== $phone) {
+            throw new JSONException("号码认证手机号与输入手机号不一致");
+        }
     }
 
 

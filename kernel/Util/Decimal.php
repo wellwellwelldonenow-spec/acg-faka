@@ -7,6 +7,11 @@ namespace Kernel\Util;
 class Decimal
 {
     /**
+     * @var bool|null
+     */
+    private static ?bool $hasBcMath = null;
+
+    /**
      * @var string
      */
     private string $amount;
@@ -33,7 +38,11 @@ class Decimal
      */
     public function add(string|float|int $other): Decimal
     {
-        $result = bcadd($this->amount, (string)$other, $this->scale);
+        if (self::hasBcMath()) {
+            $result = bcadd($this->amount, (string)$other, $this->scale);
+        } else {
+            $result = number_format((float)$this->amount + (float)$other, $this->scale, '.', '');
+        }
         return new Decimal($result, $this->scale);
     }
 
@@ -44,7 +53,11 @@ class Decimal
      */
     public function sub(string|float|int $other): Decimal
     {
-        $result = bcsub($this->amount, (string)$other, $this->scale);
+        if (self::hasBcMath()) {
+            $result = bcsub($this->amount, (string)$other, $this->scale);
+        } else {
+            $result = number_format((float)$this->amount - (float)$other, $this->scale, '.', '');
+        }
         return new Decimal($result, $this->scale);
     }
 
@@ -55,7 +68,11 @@ class Decimal
      */
     public function mul(string|float|int $factor): Decimal
     {
-        $result = bcmul($this->amount, (string)$factor, $this->scale);
+        if (self::hasBcMath()) {
+            $result = bcmul($this->amount, (string)$factor, $this->scale);
+        } else {
+            $result = number_format((float)$this->amount * (float)$factor, $this->scale, '.', '');
+        }
         return new Decimal($result, $this->scale);
     }
 
@@ -66,7 +83,16 @@ class Decimal
      */
     public function div(string|float|int $divisor): Decimal
     {
-        $result = bcdiv($this->amount, (string)$divisor, $this->scale);
+        if (self::hasBcMath()) {
+            $result = bcdiv($this->amount, (string)$divisor, $this->scale);
+        } else {
+            $divisor = (float)$divisor;
+            if ($divisor == 0.0) {
+                $result = number_format(0, $this->scale, '.', '');
+            } else {
+                $result = number_format((float)$this->amount / $divisor, $this->scale, '.', '');
+            }
+        }
         return new Decimal($result, $this->scale);
     }
 
@@ -77,6 +103,22 @@ class Decimal
      */
     public function getAmount(?int $scale = 2): string
     {
-        return bcadd($this->amount, '0', $scale);
+        $scale ??= 2;
+        if (self::hasBcMath()) {
+            return bcadd($this->amount, '0', $scale);
+        }
+        return number_format((float)$this->amount, $scale, '.', '');
+    }
+
+    /**
+     * @return bool
+     */
+    private static function hasBcMath(): bool
+    {
+        if (self::$hasBcMath !== null) {
+            return self::$hasBcMath;
+        }
+        self::$hasBcMath = function_exists('bcadd') && function_exists('bcsub') && function_exists('bcmul') && function_exists('bcdiv');
+        return self::$hasBcMath;
     }
 }

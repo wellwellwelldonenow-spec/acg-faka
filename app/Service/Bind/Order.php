@@ -21,6 +21,7 @@ use App\Model\UserCommodity;
 use App\Model\UserGroup;
 use App\Service\Email;
 use App\Service\Shared;
+use App\Service\Webshare;
 use App\Util\Client;
 use App\Util\Date;
 use App\Util\Ini;
@@ -42,6 +43,9 @@ class Order implements \App\Service\Order
 
     #[Inject]
     private Email $email;
+
+    #[Inject]
+    private Webshare $webshare;
 
 
     /**
@@ -628,6 +632,7 @@ class Order implements \App\Service\Order
             $order->owner = $owner;
             $order->trade_no = Str::generateTradeNo();
             $order->amount = (new Decimal($amount, 2))->getAmount();
+            $order->cost = (float)$commodity->factory_price;
             $order->commodity_id = $commodity->id;
             $order->pay_id = $pay->id;
             $order->create_time = $date;
@@ -831,8 +836,15 @@ class Order implements \App\Service\Order
             $order->secret = $this->shared->trade($shared, $commodity, $order->contact, $order->card_num, (int)$order->card_id, $order->create_device, (string)$order->password, (string)$order->race, $order->sku ?: [], $order->widget, $order->trade_no);
             $order->delivery_status = 1;
         } else {
-            //自动发货
-            if ($commodity->delivery_way == 0) {
+            if ($this->webshare->isSupportedCommodity($commodity)) {
+                $order->secret = $this->webshare->deliver($order);
+                $order->delivery_status = 1;
+                if ($commodity->stock >= $order->card_num) {
+                    Commodity::query()->where("id", $commodity->id)->decrement('stock', $order->card_num);
+                } else {
+                    Commodity::query()->where("id", $commodity->id)->update(['stock' => 0]);
+                }
+            } elseif ($commodity->delivery_way == 0) {
                 //拉取本地的卡密发货
                 $order->secret = $this->pullCardForLocal($order, $commodity);
                 $order->delivery_status = 1;

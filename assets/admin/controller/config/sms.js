@@ -19,7 +19,10 @@
 
 
     $('.save-data').click(function () {
-        util.post("/admin/api/config/sms", util.arrayToObject($("#data-form").serializeArray()), res => {
+        let data = util.arrayToObject($("#data-form").serializeArray());
+        data.numberAuthEnabled = $('input[name=numberAuthEnabled]').is(':checked') ? 1 : 0;
+        data.numberAuthRequired = $('input[name=numberAuthRequired]').is(':checked') ? 1 : 0;
+        util.post("/admin/api/config/sms", data, res => {
             layer.msg("保存成功");
         });
     });

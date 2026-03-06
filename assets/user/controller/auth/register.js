@@ -1,6 +1,11 @@
 !function () {
     $(`.needs-validation`).on("submit", function (e) {
         e.preventDefault();
+        const tokenInput = $('input[name=number_auth_token]');
+        if (tokenInput.length > 0 && tokenInput.prop("required") && tokenInput.val().trim() === "") {
+            message.error("请先完成号码认证");
+            return;
+        }
         const formData = new FormData($('.needs-validation')[0]);
         const data = Object.fromEntries(formData.entries());
         util.post("/user/api/authentication/register", data, res => {
@@ -60,6 +65,17 @@
                     message.success("验证码发送成功");
                 });
             }
+        });
+    });
+
+    $(`.verify-number-auth`).click(function () {
+        const token = $('input[name=number_auth_token]').val();
+        util.post("/user/api/authentication/phoneNumberAuth", {
+            phone: $('input[name=phone]').val(),
+            number_auth_token: token,
+            access_token: token
+        }, res => {
+            message.success(res.msg);
         });
     });
 }();
